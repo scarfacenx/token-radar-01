@@ -11,8 +11,23 @@
   'use strict';
 
   var DATA = window.RADAR;
-  if (!DATA) return;
   var app = document.getElementById('board');
+  if (!DATA) {
+    // No data.js beside dashboard/: a designed error, not a blank page. The
+    // page reads window.RADAR from data.js, which main.ts writes from the
+    // sealed snapshot.
+    app.setAttribute('aria-busy', 'false');
+    var err = document.createElement('div');
+    err.className = 'empty';
+    var errH = document.createElement('h3');
+    errH.textContent = 'No data to show';
+    var errP = document.createElement('p');
+    errP.textContent = 'This page reads its data from data.js beside dashboard/. Generate it with main.ts on the sealed snapshot, then reload.';
+    err.appendChild(errH);
+    err.appendChild(errP);
+    app.appendChild(err);
+    return;
+  }
   app.setAttribute('aria-busy', 'false');
 
   var PAGE_SIZE = 25;
@@ -34,6 +49,32 @@
     chain_max_steps: DATA.model.chain_max_steps,
   };
 
+  /* ---------- theme ---------- */
+
+  // Dark is the default. The toggle in the top bar flips data-theme on <html>
+  // and remembers the choice; the meta theme-color follows so the browser
+  // chrome matches the page in either theme.
+  var themeBtn = document.getElementById('theme-toggle');
+  var themeMeta = document.querySelector('meta[name="theme-color"]');
+  function applyTheme(theme) {
+    document.documentElement.setAttribute('data-theme', theme);
+    if (themeMeta) themeMeta.setAttribute('content', theme === 'light' ? '#f4f7f8' : '#0c1a24');
+    if (themeBtn) {
+      themeBtn.textContent = theme === 'light' ? '☾' : '☀';
+      themeBtn.setAttribute('aria-label', theme === 'light' ? 'Switch to dark theme' : 'Switch to light theme');
+    }
+    try { localStorage.setItem('token-radar-theme', theme); } catch (e) { /* private mode */ }
+  }
+  var savedTheme = null;
+  try { savedTheme = localStorage.getItem('token-radar-theme'); } catch (e) { /* private mode */ }
+  applyTheme(savedTheme === 'light' ? 'light' : 'dark');
+  if (themeBtn) {
+    themeBtn.addEventListener('click', function () {
+      var next = document.documentElement.getAttribute('data-theme') === 'light' ? 'dark' : 'light';
+      applyTheme(next);
+    });
+  }
+
   /* ---------- formatting ---------- */
 
   var usd0 = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
@@ -52,6 +93,14 @@
     if (days === null || days === undefined) return 'unknown';
     if (days >= 365) return (days / 365).toFixed(1) + 'y';
     return Math.max(0, Math.round(days)) + 'd';
+  }
+
+  // A protocol's chains as one short line: the first three, then how many more.
+  // The full list stays in the detail drawer; the table stays scannable.
+  function chainLabel(chains) {
+    var c = chains || [];
+    if (c.length <= 3) return c.join(', ');
+    return c.slice(0, 3).join(', ') + ' +' + (c.length - 3) + ' more';
   }
 
   /* ---------- the model, in the page ---------- */
@@ -171,15 +220,42 @@
     return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
   }
 
+  // The "Top implied value" stat follows the ranking on screen — the submitted
+  // one by default, the sandbox's when a slider moves.
+  function updateTopStat(rows) {
+    var value = document.getElementById('stat-top-value');
+    var note = document.getElementById('stat-top-note');
+    if (!value || !note) return;
+    var top = rows[0];
+    value.textContent = top ? fmtUsd(top.implied_value_usd) : 'n/a';
+    note.textContent = top ? top.name + ', rank 1' : '';
+  }
+
+  // The Top 10 chart follows the ranking on screen, same as the stat above.
+  function updateChart(rows) {
+    var body = document.getElementById('chart-body');
+    if (!body) return;
+    body.innerHTML = '';
+    var top10 = rows.slice(0, 10);
+    var max = top10.length ? top10[0].implied_value_usd : 1;
+    top10.forEach(function (r) {
+      var pct = Math.max(2, Math.round((r.implied_value_usd / max) * 100));
+      body.appendChild(el('div', { class: 'chart-row' },
+        el('span', { class: 'chart-rank', text: String(r.rank) }),
+        el('span', { class: 'chart-name', text: r.name }),
+        el('span', { class: 'chart-bar' }, el('span', { class: 'chart-fill', style: 'width:' + pct + '%' })),
+        el('span', { class: 'chart-value', text: fmtUsd(r.implied_value_usd) })));
+    });
+  }
+
   function renderStatic() {
     document.getElementById('top-sub').textContent =
-      DATA.board_size + ' pre-token protocols ranked · snapshot ' + DATA.as_of + ' · sealed DefiLlama data, no live feed';
+      DATA.board_size + ' pre-token protocols ranked, snapshot ' + DATA.as_of + ', sealed DefiLlama data, no live feed';
     document.getElementById('snap-date').textContent = DATA.as_of;
-    document.getElementById('side-asof').textContent = 'As of ' + DATA.as_of + ' · floor $' + (DATA.floor_usd / 1e6) + 'M TVL';
+    document.getElementById('side-asof').textContent = 'As of ' + DATA.as_of + ', floor $' + (DATA.floor_usd / 1e6) + 'M TVL';
 
     var changes = DATA.rows.map(function (r) { return r.change_7d; }).filter(function (n) { return n !== null && isFinite(n); });
     var med = median(changes);
-    var top = DATA.rows[0];
     var totalTvl = DATA.rows.reduce(function (sum, r) { return sum + r.tvl_usd; }, 0);
 
     var strip = el('section', { class: 'stats', 'aria-label': 'Board at a glance' },
@@ -193,32 +269,24 @@
         el('p', { class: 'stat-note', text: DATA.early_size + ' early finds below the floor' })),
       el('div', { class: 'stat' },
         el('p', { class: 'stat-label', text: 'Top implied value' }),
-        el('p', { class: 'stat-value num', text: top ? fmtUsd(top.implied_value_usd) : 'n/a' }),
-        el('p', { class: 'stat-note', text: top ? top.name + ' · rank 1' : '' })),
+        el('p', { class: 'stat-value num', id: 'stat-top-value' }),
+        el('p', { class: 'stat-note', id: 'stat-top-note' })),
       el('div', { class: 'stat' },
         el('p', { class: 'stat-label', text: 'Median 7-day change' }),
         el('p', { class: 'stat-value num ' + (med !== null && med >= 0 ? 'up' : 'down'), text: med === null ? 'n/a' : fmtPct(med) }),
         el('p', { class: 'stat-note', text: 'TVL tracked: ' + fmtUsd(totalTvl) })));
     app.appendChild(strip);
+    updateTopStat(scoredRows());
 
     // Hero: the top 10 by implied value, as bars with oversized rank numerals.
     var chart = el('section', { class: 'panel', id: 'chart', 'aria-label': 'Top 10 by implied value' });
     chart.appendChild(el('div', { class: 'panel-head' },
       el('h2', { text: 'Top 10 by implied value' }),
       el('p', { text: 'What a token could be worth if the protocol’s record stayed as it is.' })));
-    var chartBody = el('div', { class: 'chart' });
-    var top10 = DATA.rows.slice(0, 10);
-    var max = top10.length ? top10[0].implied_value_usd : 1;
-    top10.forEach(function (r) {
-      var pct = Math.max(2, Math.round((r.implied_value_usd / max) * 100));
-      chartBody.appendChild(el('div', { class: 'chart-row' },
-        el('span', { class: 'chart-rank', text: String(r.rank) }),
-        el('span', { class: 'chart-name', text: r.name }),
-        el('span', { class: 'chart-bar' }, el('span', { class: 'chart-fill', style: 'width:' + pct + '%' })),
-        el('span', { class: 'chart-value', text: fmtUsd(r.implied_value_usd) })));
-    });
+    var chartBody = el('div', { class: 'chart', id: 'chart-body' });
     chart.appendChild(chartBody);
     app.appendChild(chart);
+    updateChart(scoredRows());
 
     // Model note + biggest 7-day movers, side by side.
     var split = el('div', { class: 'split' });
@@ -227,7 +295,7 @@
     var note = el('div', { class: 'model-note' },
       el('p', { html: 'Implied value = category multiple × TVL<sup>0.92</sup> × growth × maturity × chains. Size has diminishing returns, so a protocol ten times bigger is not automatically ten times more valuable.' }),
       el('p', { html: 'Growth is the 7-day TVL change, clamped to −60%…+150% and weighted 0.6. Maturity rises with how long the protocol has run with no token, up to four years. Each extra chain adds 3%, up to five.' }),
-      el('p', { html: 'Lending and exchange protocols carry a 0.35 multiple. Bridges, staking products and exchange products are never ranked at all — the value sits with the asset they wrap, not with the venue. No protocol name is ever special-cased.' }),
+      el('p', { html: 'Lending and exchange protocols carry a 0.35 multiple. Wrapped, staked and bridged products are never ranked — the value sits with the asset they wrap, not with the venue — except the three the competition’s own watchlist names (b14g, Reti Pooling, Saturn), which the board must cover.' }),
       el('p', { html: 'The sandbox below re-ranks the page live. The submitted board uses the defaults above.' }));
     modelCard.appendChild(note);
     split.appendChild(modelCard);
@@ -235,7 +303,7 @@
     var movers = DATA.rows.filter(function (r) { return r.change_7d !== null && r.change_7d > 0; })
       .sort(function (a, b) { return b.change_7d - a.change_7d; }).slice(0, 5);
     var moverCard = el('section', { class: 'panel', 'aria-label': 'Biggest 7-day movers' });
-    moverCard.appendChild(el('div', { class: 'panel-head' }, el('h2', { text: 'Biggest 7-day movers' }), el('p', { text: 'TVL growth on the board.' })));
+    moverCard.appendChild(el('div', { class: 'panel-head' }, el('h2', { text: 'Biggest 7-day movers' }), el('p', { text: 'Raw 7-day TVL change; the model clamps it to +150%.' })));
     var list = el('ul', { class: 'movers' });
     movers.forEach(function (r) {
       list.appendChild(el('li', {},
@@ -271,7 +339,7 @@
     [['all', 'All'], ['watchlist', 'Watchlist'], ['early', 'Early finds'], ['live', 'Live tokens'], ['starred', 'Starred']].forEach(function (t) {
       tabs.appendChild(el('button', {
         class: 'tab' + (state.tab === t[0] ? ' is-active' : ''), type: 'button', role: 'tab',
-        'aria-selected': state.tab === t[0] ? 'true' : 'false',
+        'aria-selected': state.tab === t[0] ? 'true' : 'false', 'aria-controls': 'table-card',
         onclick: function () { state.tab = t[0]; state.page = 1; syncHash(); renderTable(); },
       }, t[1]));
     });
@@ -335,7 +403,7 @@
         var nameCell = el('td', {},
           el('span', { class: 'cell-name', text: r.name }),
           isWatch(r) ? el('span', { class: 'watch-tag', text: 'Watchlist' }) : null,
-          el('div', { class: 'cell-sub', text: r.slug + ' · ' + (r.category || 'Uncategorized') + ' · ' + (r.chains || []).join(', ') }));
+          el('div', { class: 'cell-sub', text: r.slug + ', ' + (r.category || 'Uncategorized') + ', ' + chainLabel(r.chains) }));
         tr.appendChild(nameCell);
         tr.appendChild(el('td', { class: 'num', text: fmtUsd(r.tvl_usd) }));
         var ch = r.change_7d;
@@ -355,11 +423,11 @@
     pagerHost.appendChild(el('span', { class: 'spacer' }));
     pagerHost.appendChild(el('button', {
       class: 'btn', type: 'button', disabled: state.page <= 1 ? 'disabled' : null,
-      onclick: function () { if (state.page > 1) { state.page--; renderTable(); } },
+      onclick: function () { if (state.page > 1) { state.page--; syncHash(); renderTable(); } },
     }, 'Previous'));
     pagerHost.appendChild(el('button', {
       class: 'btn', type: 'button', disabled: state.page >= pages ? 'disabled' : null,
-      onclick: function () { if (state.page < pages) { state.page++; renderTable(); } },
+      onclick: function () { if (state.page < pages) { state.page++; syncHash(); renderTable(); } },
     }, 'Next'));
   }
 
@@ -377,7 +445,7 @@
       var tr = el('tr', {});
       tr.appendChild(el('td', {},
         el('span', { class: 'cell-name', text: r.name }),
-        el('div', { class: 'cell-sub', text: r.slug + ' · ' + (r.category || 'Uncategorized') + ' · ' + (r.chains || []).join(', ') })));
+        el('div', { class: 'cell-sub', text: r.slug + ', ' + (r.category || 'Uncategorized') + ', ' + chainLabel(r.chains) })));
       tr.appendChild(el('td', { class: 'num', text: fmtUsd(r.tvl_usd) }));
       tr.appendChild(el('td', { class: 'num', text: fmtUsd(r.mcap_usd) }));
       var ch = r.change_7d;
@@ -395,6 +463,7 @@
   function setSort(key) {
     if (state.sort === key) state.dir = -state.dir;
     else { state.sort = key; state.dir = key === 'name' ? 1 : -1; }
+    syncHash();
     renderTable();
   }
 
@@ -442,7 +511,7 @@
       el('h2', { text: row.name }),
       el('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Close detail', onclick: closeDrawer }, '✕'));
     drawer.appendChild(head);
-    drawer.appendChild(el('p', { class: 'drawer-meta', text: row.slug + ' · ' + (row.category || 'Uncategorized') + ' · ' + (row.chains || []).join(', ') + ' · rank #' + row.rank }));
+    drawer.appendChild(el('p', { class: 'drawer-meta', text: row.slug + ', ' + (row.category || 'Uncategorized') + ', ' + (row.chains || []).join(', ') + ', rank #' + row.rank }));
     drawer.appendChild(el('h3', { text: 'Implied value: ' + fmtUsd(row.implied_value_usd) }));
     drawer.appendChild(el('p', { class: 'muted', text: 'What its token could be worth if the protocol’s record stayed as it is. The protocol records no token — that is DefiLlama’s record, not proof it has none.' }));
     drawer.appendChild(el('h3', { text: 'How the number is built' }));
@@ -493,7 +562,7 @@
     drawer.appendChild(el('div', { class: 'drawer-head' },
       el('h2', { text: row.name }),
       el('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Close detail', onclick: closeDrawer }, '✕')));
-    drawer.appendChild(el('p', { class: 'drawer-meta', text: row.slug + ' · ' + (row.category || 'Uncategorized') + ' · ' + (row.chains || []).join(', ') }));
+    drawer.appendChild(el('p', { class: 'drawer-meta', text: row.slug + ', ' + (row.category || 'Uncategorized') + ', ' + (row.chains || []).join(', ') }));
     drawer.appendChild(el('h3', { text: 'Market cap: ' + fmtUsd(row.mcap_usd) }));
     drawer.appendChild(el('p', { class: 'muted', text: 'This protocol’s token already trades. The market sets its price, so the model does not rank it and there is no farm plan for a token that exists.' }));
     var kv = el('dl', { class: 'kv' });
@@ -539,6 +608,7 @@
       model.growth_weight = parseFloat(gwInput.value);
       document.getElementById('gw-out').textContent = model.growth_weight.toFixed(2);
       state.sandbox = true; state.page = 1; renderTable(); renderSandboxNote();
+      updateTopStat(scoredRows()); updateChart(scoredRows());
     });
     gw.appendChild(gwInput);
     var ex = el('label', {}, 'TVL exponent — how much size matters ',
@@ -548,6 +618,7 @@
       model.tvl_exponent = parseFloat(exInput.value);
       document.getElementById('ex-out').textContent = model.tvl_exponent.toFixed(2);
       state.sandbox = true; state.page = 1; renderTable(); renderSandboxNote();
+      updateTopStat(scoredRows()); updateChart(scoredRows());
     });
     ex.appendChild(exInput);
     box.appendChild(gw);
@@ -560,6 +631,7 @@
         model.tvl_exponent = DATA.model.tvl_exponent;
         state.sandbox = false; state.page = 1;
         renderTable(); renderSandboxNote();
+        updateTopStat(scoredRows()); updateChart(scoredRows());
         gwInput.value = String(model.growth_weight);
         exInput.value = String(model.tvl_exponent);
         document.getElementById('gw-out').textContent = model.growth_weight.toFixed(2);
@@ -589,6 +661,8 @@
     var parts = [];
     if (state.tab !== 'all') parts.push('tab=' + state.tab);
     if (state.q) parts.push('q=' + encodeURIComponent(state.q));
+    if (state.page !== 1) parts.push('page=' + state.page);
+    if (state.sort !== 'rank' || state.dir !== 1) parts.push('sort=' + state.sort + ':' + (state.dir === 1 ? 'asc' : 'desc'));
     if (state.selected) parts.push('detail=' + state.selected);
     var hash = parts.length ? '#' + parts.join('&') : '';
     if (window.location.hash !== hash) history.replaceState(null, '', hash || window.location.pathname + window.location.search);
@@ -602,8 +676,23 @@
       var k = kv[0], v = decodeURIComponent(kv[1] || '');
       if (k === 'tab' && ['all', 'watchlist', 'early', 'live', 'starred'].indexOf(v) >= 0) state.tab = v;
       if (k === 'q') { state.q = v; var s = document.getElementById('search'); if (s) s.value = v; }
+      if (k === 'page') { var p = parseInt(v, 10); if (isFinite(p) && p >= 1) state.page = p; }
+      if (k === 'sort') {
+        var sk = v.split(':');
+        if (['rank', 'name', 'tvl', 'change', 'age', 'implied'].indexOf(sk[0]) >= 0) {
+          state.sort = sk[0];
+          state.dir = sk[1] === 'desc' ? -1 : 1;
+        }
+      }
       if (k === 'detail') state.selected = v;
     });
+  }
+
+  // Scrolling follows the reader's motion setting: smooth unless they asked
+  // for reduced motion.
+  function scrollToEl(elm) {
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) elm.scrollIntoView();
+    else elm.scrollIntoView({ behavior: 'smooth' });
   }
 
   document.querySelectorAll('[data-nav]').forEach(function (btn) {
@@ -613,10 +702,10 @@
       btn.classList.add('is-active');
       if (nav === 'board') { state.tab = 'all'; }
       else if (nav === 'watchlist' || nav === 'early' || nav === 'live' || nav === 'starred') { state.tab = nav; }
-      else if (nav === 'chart') { document.getElementById('chart').scrollIntoView({ behavior: 'smooth' }); return; }
-      else if (nav === 'model') { document.getElementById('model').scrollIntoView({ behavior: 'smooth' }); return; }
+      else if (nav === 'chart') { scrollToEl(document.getElementById('chart')); return; }
+      else if (nav === 'model') { scrollToEl(document.getElementById('model')); return; }
       state.page = 1; syncHash(); renderTable();
-      document.getElementById('table-card').scrollIntoView({ behavior: 'smooth' });
+      scrollToEl(document.getElementById('table-card'));
     });
   });
 
@@ -638,9 +727,10 @@
   app.appendChild(el('p', { class: 'foot', text: 'Source: DefiLlama protocols endpoint, fetched ' + DATA.as_of + '. “Records no token” means DefiLlama’s record carries none — not proof the protocol has none. Implied values are this entry’s own claim, never make.fun’s.' }));
   if (state.selected) openDrawer(state.selected, true);
   // A filtered view opened from a link lands on the table itself, so the filter
-  // is visible at once instead of sitting below the fold.
+  // is visible at once instead of sitting below the fold. The panel's
+  // scroll-margin-top keeps it clear of the sticky top bar.
   if (!state.selected && (state.tab !== 'all' || state.q)) {
     var card = document.getElementById('table-card');
-    if (card) { card.scrollIntoView(); window.scrollBy(0, -70); }
+    if (card) card.scrollIntoView();
   }
 })();

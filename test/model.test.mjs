@@ -9,6 +9,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   MODEL,
+  ageDays,
   buildBoard,
   boardIssue,
   categoryMultiple,
@@ -66,6 +67,42 @@ describe('isRankable', () => {
   it('excludes bridges and liquid staking outright', () => {
     assert.equal(isRankable(proto({ category: 'Bridge' })), false);
     assert.equal(isRankable(proto({ category: 'Liquid Staking' })), false);
+  });
+  it('excludes a cross-chain bridge: the category rule is a substring, not an exact set', () => {
+    assert.equal(isRankable(proto({ category: 'Cross Chain Bridge' })), false);
+  });
+  it('excludes wrapper categories: restaking, anchor BTC, decentralized BTC, stablecoin wrapper, staking pool', () => {
+    assert.equal(isRankable(proto({ category: 'Restaking' })), false);
+    assert.equal(isRankable(proto({ category: 'Anchor BTC' })), false);
+    assert.equal(isRankable(proto({ category: 'Decentralized BTC' })), false);
+    assert.equal(isRankable(proto({ category: 'Stablecoin Wrapper' })), false);
+    assert.equal(isRankable(proto({ category: 'Staking Pool' })), false);
+  });
+  it('excludes receipt tickers: a wrapped or staked token by ticker, not only by word', () => {
+    assert.equal(isRankable(proto({ name: 'Avant avETH', category: 'Yield' })), false);
+    assert.equal(isRankable(proto({ name: 'Valantis stHYPE Restaking', category: 'Restaking' })), false);
+    assert.equal(isRankable(proto({ name: 'Bitlayer YBTC Family', category: 'Yield' })), false);
+    assert.equal(isRankable(proto({ name: 'USDCx', category: 'Yield' })), false);
+    assert.equal(isRankable(proto({ name: 'Wrapped BTC', category: 'Yield' })), false);
+    assert.equal(isRankable(proto({ name: 'Coinbase cbETH', category: 'Yield' })), false);
+  });
+  it('keeps a real protocol whose name only mentions an asset: BTCFi CDP, Bitcoin L2, Hyperliquid', () => {
+    assert.equal(isRankable(proto({ name: 'BTCFi CDP', category: 'CDP' })), true);
+    assert.equal(isRankable(proto({ name: 'Bitcoin L2', category: 'Chain' })), true);
+    assert.equal(isRankable(proto({ name: 'Hyperliquid', category: 'Derivatives' })), true);
+  });
+});
+
+describe('ageDays', () => {
+  it('counts days from a date-only listed_at', () => {
+    assert.equal(ageDays('2026-11-14', '2026-11-01'), 13);
+  });
+  it('counts days from a full datetime listed_at instead of giving up', () => {
+    assert.equal(ageDays('2026-11-14', '2026-11-01T12:00:00.000Z'), 13);
+  });
+  it('returns null when listed_at is absent or garbage', () => {
+    assert.equal(ageDays('2026-11-14', null), null);
+    assert.equal(ageDays('2026-11-14', 'not a date'), null);
   });
 });
 
@@ -169,13 +206,19 @@ describe('parseSnapshot', () => {
 describe('real sealed snapshot', () => {
   const kitSnapshot = join(here, '..', '..', 'token-radar-01-kit', 'input', 'snapshot.json');
   const present = existsSync(kitSnapshot);
-  it('scores the real snapshot: 40 watchlist slugs covered, 198 rows, gate clean', { skip: !present }, () => {
+  it('scores the real snapshot: 40 watchlist slugs covered, 188 rows, gate clean', { skip: !present }, () => {
     const snapshot = parseSnapshot(readFileSync(kitSnapshot, 'utf8'));
     const board = buildBoard(snapshot);
     assert.equal(snapshot.watchlist.length, 40);
-    assert.equal(board.length, 198);
+    assert.equal(board.length, 188);
     assert.equal(boardIssue(board, snapshot), null);
     const slugs = new Set(board.map((r) => r.slug));
     for (const s of snapshot.watchlist) assert.ok(slugs.has(s), `missing ${s}`);
+  });
+  it('the watchlist forces exactly three wrapper products onto the board, and no more', { skip: !present }, () => {
+    const snapshot = parseSnapshot(readFileSync(kitSnapshot, 'utf8'));
+    const bySlug = new Map(snapshot.protocols.map((p) => [p.slug, p]));
+    const forced = snapshot.watchlist.filter((s) => !isRankable(bySlug.get(s))).sort();
+    assert.deepEqual(forced, ['b14g', 'reti-pooling', 'saturn']);
   });
 });

@@ -7,7 +7,11 @@
 //
 // Implied value follows only from the snapshot's own figures — TVL, seven-day growth,
 // how long the protocol has run with no token, how many chains it runs on, and its
-// category. No protocol name is ever special-cased: the same function scores every row.
+// category. The same function scores every row — no protocol's figures are
+// adjusted by name. One exception, and it is in the open: the exclusion rule
+// does not apply to the watchlist. The gate requires all 40 of its slugs on
+// the board, so a watchlist slug the rule would catch (b14g, Reti Pooling,
+// Saturn) is still ranked, and the dashboard says so.
 //
 //   base       = category_multiple x tvl_usd^0.92
 //   growth     = clamp(change_7d, -60, 150) per cent
@@ -196,8 +200,11 @@ function finite(value: unknown, fallback: number): number {
 /** A whole day count from `from` to `to`, clamped at zero; null when either date is absent or bad. */
 export function ageDays(asOf: string, listedAt: string | null): number | null {
   if (listedAt === null) return null;
+  // listed_at is a UTC day, but a record may carry a full timestamp: the day is
+  // its first ten characters either way, and anything unparsable is still null.
+  const day = listedAt.slice(0, 10);
   const a = Date.parse(`${asOf}T00:00:00Z`);
-  const b = Date.parse(`${listedAt}T00:00:00Z`);
+  const b = Date.parse(`${day}T00:00:00Z`);
   if (!Number.isFinite(a) || !Number.isFinite(b)) return null;
   return Math.max(0, Math.floor((a - b) / DAY_MS));
 }
@@ -229,11 +236,52 @@ const VERSIONED = /\s(V\d+(\.\d+)?|v\d+(\.\d+)?|\d+\.\d+)$/;
 /** A name carrying a whole word wrapped, staked or staking: a product of another token. */
 const WRAPPED_OR_STAKED = /\b(wrapped|staked|staking)\b/i;
 
+/**
+ * A name token that is a receipt for an asset that already trades: a known asset
+ * symbol with a short receipt prefix (st, cb, av, w, …) or an x suffix — stHYPE,
+ * avETH, YBTC, wBTC, USDCx. A bare asset symbol alone is not a receipt, and a
+ * brand that only mentions an asset (BTCFi, Hyperliquid) is not one either.
+ */
+const RECEIPT_TICKER = /^(?:([a-z]{1,4}))?(BTC|ETH|SOL|USDC|USDT|HYPE|USDE|DAI)(x)?$/i;
+
+/** Whether one whitespace-separated token of a name is such a receipt ticker. */
+function hasReceiptTicker(name: string): boolean {
+  return name.split(/\s+/).some((token) => {
+    const m = token.match(RECEIPT_TICKER);
+    return m !== null && (m[1] !== undefined || m[3] !== undefined);
+  });
+}
+
 /** A name beginning with an exchange's name: the exchange's own product. */
 const EXCHANGE_NAMED = /^(Binance|Coinbase|Bybit|Kraken|Bitget|OKX|Bitfinex|Gemini)\b/i;
 
-/** Categories that are a product of a token that already trades, not a protocol of their own. */
-const PRODUCT_CATEGORIES = new Set(['Bridge', 'Canonical Bridge', 'Liquid Staking', 'Liquid Restaking', 'Restaked BTC', 'CEX']);
+/**
+ * Categories that are a product of a token that already trades, not a protocol of
+ * their own. Matched as substrings, not an exact set: the house's own list
+ * (Bridge, Canonical Bridge, Liquid Staking, Liquid Restaking, Restaked BTC, CEX)
+ * is in here, and so are the forms it misses — Cross Chain Bridge is a bridge,
+ * and an Anchor BTC, a Decentralized BTC, a Stablecoin Wrapper, a Staking Pool
+ * or a Restaking venue wraps an asset that already trades, so its value sits
+ * with that asset, not with the venue.
+ */
+const PRODUCT_CATEGORY_WORDS = [
+  'bridge',
+  'liquid staking',
+  'liquid restaking',
+  'restaked',
+  'restaking',
+  'cex',
+  'anchor btc',
+  'decentralized btc',
+  'stablecoin wrapper',
+  'staking pool',
+];
+
+/** Whether a category names such a product. */
+function isProductCategory(category: string | null): boolean {
+  const c = (category ?? '').toLowerCase();
+  return PRODUCT_CATEGORY_WORDS.some((w) => c.includes(w));
+}
 
 /** Whether a protocol records no token at all. */
 export function isPreToken(p: SnapshotProtocol): boolean {
@@ -242,18 +290,25 @@ export function isPreToken(p: SnapshotProtocol): boolean {
 
 /**
  * Whether a protocol is one the board may rank. The watchlist's own exclusion rule,
- * applied to the whole board: a wrapped, staked or bridged product of a token that
- * already trades is not a protocol still waiting on a launch of its own, so Binance
- * staked ETH, WBTC and their kin are never ranked, whatever their TVL. The snapshot
- * does not carry DefiLlama's parentProtocol field, so that part of the rule cannot be
- * checked here; the fields it does carry are all applied.
+ * applied to the whole board and extended to the forms the snapshot's ten fields can
+ * still name: a wrapped, staked or bridged product of a token that already trades
+ * is not a protocol still waiting on a launch of its own, so Binance staked ETH,
+ * WBTC and their kin are never ranked, whatever their TVL — whether the name says
+ * so in words (wrapped, staked), in a receipt ticker (stHYPE, avETH, YBTC), or in
+ * a wrapper category (Anchor BTC, Stablecoin Wrapper, Cross Chain Bridge). The
+ * snapshot does not carry DefiLlama's parentProtocol field, so that part of the
+ * rule cannot be checked here; the fields it does carry are all applied. The
+ * watchlist itself is the floor and is never filtered by this rule: the gate
+ * requires every one of its 40 slugs on the board, so a watchlist slug the rule
+ * would catch is still ranked, and the dashboard says so.
  */
 export function isRankable(p: SnapshotProtocol): boolean {
   return (
     isPreToken(p) &&
-    !PRODUCT_CATEGORIES.has(p.category ?? '') &&
+    !isProductCategory(p.category) &&
     !VERSIONED.test(p.name) &&
     !WRAPPED_OR_STAKED.test(p.name) &&
+    !hasReceiptTicker(p.name) &&
     !EXCHANGE_NAMED.test(p.name)
   );
 }
@@ -317,7 +372,7 @@ const round4 = (n: number): number => Math.round(n * 1e4) / 1e4;
 /** A step as one string: its action, then its cost and time, within the gate's 20..600 characters. */
 export function stepText(step: FarmStep): string {
   let s = `${step.text} Cost: ${step.cost}. Time: ${step.time}.`;
-  if (s.length > 600) s = `${s.slice(0, 596)}...`;
+  if (s.length > 600) s = `${s.slice(0, 595)}…`;
   if (s.length < 20) s = `${s} Hold the position and check the protocol's own page.`;
   return s;
 }
