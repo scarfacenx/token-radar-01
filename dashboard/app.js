@@ -232,6 +232,8 @@
   }
 
   // The Top 10 chart follows the ranking on screen, same as the stat above.
+  // So does its concentration line: how many of the ten are vault curators or
+  // capital allocators, the categories the snapshot's TVL concentrates in.
   function updateChart(rows) {
     var body = document.getElementById('chart-body');
     if (!body) return;
@@ -246,6 +248,13 @@
         el('span', { class: 'chart-bar' }, el('span', { class: 'chart-fill', style: 'width:' + pct + '%' })),
         el('span', { class: 'chart-value', text: fmtUsd(r.implied_value_usd) })));
     });
+    var note = document.getElementById('chart-note');
+    if (note) {
+      var curators = top10.filter(function (r) {
+        return r.category === 'Risk Curators' || r.category === 'Onchain Capital Allocator';
+      }).length;
+      note.textContent = curators + ' of the top 10 are vault curators or capital allocators — that is where the snapshot’s TVL sits, not a diversity rule.';
+    }
   }
 
   function renderStatic() {
@@ -285,6 +294,7 @@
       el('p', { text: 'What a token could be worth if the protocol’s record stayed as it is.' })));
     var chartBody = el('div', { class: 'chart', id: 'chart-body' });
     chart.appendChild(chartBody);
+    chart.appendChild(el('p', { class: 'chart-note', id: 'chart-note' }));
     app.appendChild(chart);
     updateChart(scoredRows());
 
@@ -296,6 +306,9 @@
       el('p', { html: 'Implied value = category multiple × TVL<sup>0.92</sup> × growth × maturity × chains. Size has diminishing returns, so a protocol ten times bigger is not automatically ten times more valuable.' }),
       el('p', { html: 'Growth is the 7-day TVL change, clamped to −60%…+150% and weighted 0.6. Maturity rises with how long the protocol has run with no token, up to four years. Each extra chain adds 3%, up to five.' }),
       el('p', { html: 'Lending and exchange protocols carry a 0.35 multiple. Wrapped, staked and bridged products are never ranked — the value sits with the asset they wrap, not with the venue — except the three the competition’s own watchlist names (b14g, Reti Pooling, Saturn), which the board must cover.' }),
+      el('p', { html: 'Checked, not just asserted. Moving any one constant across its reasonable range — TVL exponent 0.85–1.00, growth weight 0–0.9 — leaves the top 10 unchanged and the full board at Spearman ≥ 0.99. Even deleting a term outright leaves 9 of the top 10. The top of the board is not a knife-edge artifact of 0.92 versus 0.88.' }),
+      el('p', { html: 'Six of the top 10 are vault curators or capital allocators. That is where the snapshot’s TVL sits: the ten biggest pre-token protocols by TVL are all exchanges, bridges or wrapped products the rule removes, so the board’s top is the exclusion rule working, not TVL order. The model forces no diversity.' }),
+      el('p', { html: 'Against the market the model is conservative. Scoring the snapshot’s own live-token protocols the same way gives a median implied value of 22% of their actual market cap — it ranks launches, it does not promise a price. None of the 188 rows had launched a token two days after the snapshot, so the board is still current.' }),
       el('p', { html: 'The sandbox below re-ranks the page live. The submitted board uses the defaults above.' }));
     modelCard.appendChild(note);
     split.appendChild(modelCard);

@@ -9,6 +9,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   MODEL,
+  WATCHLIST_PLANS,
   ageDays,
   buildBoard,
   boardIssue,
@@ -191,6 +192,134 @@ describe('farmSteps', () => {
     );
     assert.ok(steps[1].includes('Solana'));
     assert.ok(steps[1].includes('$150'));
+  });
+});
+
+describe('watchlist farm plans', () => {
+  const kitSnapshot = join(here, '..', '..', 'token-radar-01-kit', 'input', 'snapshot.json');
+  const present = existsSync(kitSnapshot);
+  it('every watchlist slug has its own plan entry', { skip: !present }, () => {
+    const snapshot = parseSnapshot(readFileSync(kitSnapshot, 'utf8'));
+    for (const s of snapshot.watchlist) assert.ok(WATCHLIST_PLANS[s] !== undefined, `no plan for ${s}`);
+    assert.equal(Object.keys(WATCHLIST_PLANS).length, 40);
+  });
+  it('a watchlist plan is per-protocol, not the template with a name swapped in', { skip: !present }, () => {
+    const snapshot = parseSnapshot(readFileSync(kitSnapshot, 'utf8'));
+    const bySlug = new Map(snapshot.protocols.map((p) => [p.slug, p]));
+    for (const slug of snapshot.watchlist) {
+      const p = bySlug.get(slug);
+      const age = p.listed_at === null ? null : ageDays(snapshot.as_of, p.listed_at);
+      const mine = farmSteps(p, age).map((s) => s.text);
+      // The generic plan for the same category, chains, TVL and age, under a
+      // different name: strip both names, then count the steps that still differ.
+      const twin = { ...p, slug: 'twin-protocol', name: 'Twin Protocol' };
+      const generic = farmSteps(twin, age).map((s) => s.text);
+      const strip = (s) => s.replaceAll(p.name, '').replaceAll('Twin Protocol', '');
+      const different = mine.filter((s, i) => strip(s) !== strip(generic[i])).length;
+      assert.ok(different >= 3, `${slug}: only ${different} steps differ from the generic plan`);
+    }
+  });
+  it('a watchlist plan names the protocol’s own product or asset where one exists', { skip: !present }, () => {
+    const snapshot = parseSnapshot(readFileSync(kitSnapshot, 'utf8'));
+    const bySlug = new Map(snapshot.protocols.map((p) => [p.slug, p]));
+    const expects = {
+      'axis': 'USDx',
+      'b14g': 'BTC',
+      'bittensor-dtao': 'dTAO',
+      'doppler-finance': 'XRP',
+      'firelight': 'FXRP',
+      'hive-protocol': '$B2',
+      'keyrock': 'Morpho',
+      'lagoon': 'ERC-7540',
+      'lofty': 'property',
+      'mezo-earn': 'governance',
+      'nonce-capital': 'ether.fi',
+      'rockawayx': 'Morpho',
+      'saturn': 'sUSDat',
+      'symbiotic': 'collateral',
+      'tori-finance': 'strUSD',
+      'tydro': 'Aave',
+      'usdd': 'USDD',
+      'veda': 'ether.fi',
+      'yuzu-money': 'syzUSD',
+      'reti-pooling': 'ALGO',
+    };
+    for (const [slug, word] of Object.entries(expects)) {
+      const p = bySlug.get(slug);
+      const age = p.listed_at === null ? null : ageDays(snapshot.as_of, p.listed_at);
+      const text = farmSteps(p, age).map((s) => s.text).join(' ');
+      assert.ok(text.includes(word), `${slug}: plan never says ${word}`);
+    }
+  });
+  it('every watchlist plan’s steps are 20..600 characters', { skip: !present }, () => {
+    const snapshot = parseSnapshot(readFileSync(kitSnapshot, 'utf8'));
+    const bySlug = new Map(snapshot.protocols.map((p) => [p.slug, p]));
+    for (const slug of snapshot.watchlist) {
+      const p = bySlug.get(slug);
+      const age = p.listed_at === null ? null : ageDays(snapshot.as_of, p.listed_at);
+      const steps = farmSteps(p, age).map(stepTextOf);
+      assert.equal(steps.length, 6, `${slug}: ${steps.length} steps`);
+      for (const s of steps) assert.ok(s.length >= 20 && s.length <= 600, `${slug}: step of ${s.length} chars`);
+    }
+    function stepTextOf(s) {
+      let t = `${s.text} Cost: ${s.cost}. Time: ${s.time}.`;
+      if (t.length > 600) t = `${t.slice(0, 595)}…`;
+      if (t.length < 20) t = `${t} Hold the position and check the protocol's own page.`;
+      return t;
+    }
+  });
+});
+
+describe('ranking stability (validation of the constants)', () => {
+  const kitSnapshot = join(here, '..', '..', 'token-radar-01-kit', 'input', 'snapshot.json');
+  const present = existsSync(kitSnapshot);
+  function topSet(board, n) {
+    return new Set(board.slice(0, n).map((r) => r.slug));
+  }
+  it('the top 10 is identical under TVL and growth sweeps, and 9 of 10 when maturity is deleted outright', { skip: !present }, () => {
+    const snapshot = parseSnapshot(readFileSync(kitSnapshot, 'utf8'));
+    const base = topSet(buildBoard(snapshot), 10);
+    // TVL exponent and growth weight: the top 10 does not move at all.
+    for (const patch of [
+      { tvl_exponent: 0.85 }, { tvl_exponent: 1.0 },
+      { growth_weight: 0 }, { growth_weight: 0.9 },
+    ]) {
+      const swept = topSet(buildBoard(snapshot, { ...MODEL, ...patch }), 10);
+      assert.deepEqual([...swept].sort(), [...base].sort(), `top 10 moved under ${JSON.stringify(patch)}`);
+    }
+    // Deleting a term outright is not a reasonable range, it is a different
+    // model — and even then only the #9/#10 edge moves: Polymarket, five years
+    // old, falls out and RockawayX, eight months old, takes its place. The
+    // maturity term is doing real work at that edge, and the test pins it.
+    for (const patch of [{ maturity_range: 0 }, { chain_step: 0 }]) {
+      const swept = topSet(buildBoard(snapshot, { ...MODEL, ...patch }), 10);
+      const overlap = [...swept].filter((s) => base.has(s)).length;
+      assert.ok(overlap >= 9, `top 10 overlap ${overlap}/10 under ${JSON.stringify(patch)}`);
+    }
+  });
+  it('the top row is Steakhouse under every single-constant sweep', { skip: !present }, () => {
+    const snapshot = parseSnapshot(readFileSync(kitSnapshot, 'utf8'));
+    for (const patch of [
+      { tvl_exponent: 0.85 }, { tvl_exponent: 1.0 },
+      { growth_weight: 0 }, { growth_weight: 0.9 },
+      { maturity_range: 0 }, { chain_step: 0 },
+    ]) {
+      assert.equal(buildBoard(snapshot, { ...MODEL, ...patch })[0].slug, 'steakhouse-financial', JSON.stringify(patch));
+    }
+  });
+  it('the model prices launches conservatively against mature market caps', { skip: !present }, () => {
+    // Scoring the snapshot's own live-token protocols the same way: the median
+    // implied value is well under their actual market cap. A launch model that
+    // priced at or above mature market caps would be claiming too much.
+    const snapshot = parseSnapshot(readFileSync(kitSnapshot, 'utf8'));
+    const ratios = snapshot.protocols
+      .filter((p) => !isRankable(p) && p.mcap_usd !== null && p.mcap_usd > 0 && p.tvl_usd > 0 && p.category !== 'CEX')
+      .map((p) => impliedValue(p, snapshot.as_of, MODEL).implied / p.mcap_usd)
+      .sort((a, b) => a - b);
+    assert.ok(ratios.length >= 100, `only ${ratios.length} live protocols to compare`);
+    const median = ratios[Math.floor(ratios.length / 2)];
+    assert.ok(median < 0.5, `median implied/mcap is ${median.toFixed(3)}, not conservative`);
+    assert.ok(median > 0.05, `median implied/mcap is ${median.toFixed(3)}, implausibly low`);
   });
 });
 

@@ -187,6 +187,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible
 .chart-bar { display: block; height: 10px; background: var(--wash-2); border-radius: 999px; overflow: hidden; }
 .chart-fill { display: block; height: 100%; background: var(--signal); border-radius: 999px; }
 .chart-value { font-family: var(--font-num); font-size: 13px; text-align: right; color: var(--muted); }
+.chart-note { font-size: 13px; color: var(--muted); padding: 0 18px 16px; }
 
 /* Model note + movers, side by side. */
 .split { display: grid; grid-template-columns: 1.4fr 1fr; gap: 24px; }

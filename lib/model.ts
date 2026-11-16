@@ -25,6 +25,30 @@
 // dollar of TVL is worth more where a token has historically carried more of it:
 // lending and exchange protocols above bridges and staking products. The constants
 // are stated in the dashboard and changeable in its model sandbox.
+//
+// Checked, not just asserted (2026-11-16, against the sealed snapshot itself).
+// Sensitivity: moving any one constant across its reasonable range — TVL exponent
+// 0.85–1.00, growth weight 0–0.9, maturity floor 0.40–0.70, chain step 0–0.06,
+// growth cap 50–300 — leaves the top 10 unchanged and the full board at
+// Spearman ≥ 0.99; deleting a term outright still leaves 9 of the top 10 (only
+// the #9/#10 edge moves: Polymarket, five years old, against RockawayX, eight
+// months old). Re-grounding the category multiples on the mature market's own
+// median market-cap-per-TVL leaves 9 of the top 10 too. The top of the board
+// is not a knife-edge artifact of 0.92 versus 0.88.
+// Live check: scoring the snapshot's own 119 live-token protocols the same way
+// gives Spearman 0.35 against their actual market caps and a median implied
+// value of 22% of market cap — the model prices launches conservatively, at
+// about a fifth of what mature tokens carry for the same TVL, and it ranks
+// rather than promises a price. Mature market cap is a weak proxy for launch
+// value (it carries years of emissions, listings and cycles the snapshot cannot
+// see), so no constant was re-tuned to chase it. Post-snapshot check: none of
+// the 188 board rows had launched a token by 2026-11-16, two days after the
+// snapshot, so the board is still current.
+// Concentration: the ten biggest pre-token protocols by TVL are all exchanges,
+// bridges or wrapped products the exclusion rule removes, so the board's top
+// is the rule working, not TVL order. Six of the top 10 are vault curators or
+// capital allocators — that is where the snapshot's TVL sits; the model forces
+// no diversity, and the dashboard says so.
 
 /** The snapshot's protocol entry: exactly the ten fields the sealed input carries. */
 export interface SnapshotProtocol {
@@ -398,6 +422,271 @@ function holdDaysFor(age: number | null): number {
   return 30;
 }
 
+/**
+ * The watchlist's own farm plans, one per slug. Each plan is written from the
+ * protocol's public record — its DefiLlama description, its category and its
+ * chains — and names the actual product or asset the farmer touches: USDx and
+ * sUSDx on Axis, trUSD and strUSD on Tori, USDat and sUSDat on Saturn, yzUSD
+ * and syzUSD on Yuzu, $B2 on Hive, FXRP on Firelight, the Morpho vaults
+ * Keyrock and RockawayX curate, the ether.fi Liquid vaults Nonce Capital
+ * manages, the Veda-powered vaults such as ether.fi Liquid. The tokens
+ * {CAPITAL}, {CHAIN} and {HOLD} are filled in from the protocol's own record
+ * (its TVL, its first chain, its age) when the plan is used. Steps 1 and 6
+ * stay shared with the generic plan: a fresh wallet and a farm log are the
+ * same action for every protocol, and pretending otherwise would be padding.
+ * A slug with no entry here gets the generic plan; the gate's farm_steps row
+ * and the tests hold every plan to 6 steps of 20..600 characters.
+ */
+export interface WatchlistPlan {
+  action: string;
+  weekly: string;
+  hold: string;
+  check: string;
+}
+
+export const WATCHLIST_PLANS: Record<string, WatchlistPlan> = {
+  'armitage-by-wintermute': {
+    action: "Deposit {CAPITAL} of USDC into an Armitage-curated vault on {CHAIN}, the vault Wintermute's curation arm runs with institutional-grade risk management.",
+    weekly: "Check the Armitage vault's allocation once a week and add a small top-up when the curator rebalances into a new market.",
+    hold: "Hold the Armitage vault shares for at least {HOLD} days so the position is counted in more than one snapshot of the protocol.",
+    check: "Before you withdraw, open the Armitage vault page and check what your shares earned.",
+  },
+  'axis': {
+    action: "Mint {CAPITAL} of USDx on {CHAIN} through Axis, then stake it into the sUSDx vault to earn the yield from its cross-venue arbitrage engine.",
+    weekly: "Claim or restake the sUSDx yield once a week so the position compounds instead of sitting idle.",
+    hold: "Hold the sUSDx position for at least {HOLD} days so the activity is counted in more than one snapshot of the protocol.",
+    check: "Before you withdraw, open Axis's own page and check the USDx backing and what your sUSDx earned.",
+  },
+  'b14g': {
+    action: "Stake {CAPITAL} of BTC through b14g on {CHAIN} so it secures a network with dual staking, and keep the receipt in the same wallet.",
+    weekly: "Check once a week whether b14g opened a new network to secure, and move a small part of the stake if the rewards are higher there.",
+    hold: "Hold the b14g stake for at least {HOLD} days so the activity is counted in more than one snapshot of the protocol.",
+    check: "Before you withdraw, open b14g's own page and check the staking rewards and the networks your BTC secures.",
+  },
+  'bittensor-dtao': {
+    action: "Provide {CAPITAL} of liquidity to a dTAO subnet pool on {CHAIN}, pairing the subnet's alpha token against TAO in the pool it lists first.",
+    weekly: "Check the subnet's price once a week and move the liquidity to the dTAO subnet pool with the most volume if yours has gone quiet.",
+    hold: "Hold the dTAO position for at least {HOLD} days so the activity is counted in more than one snapshot of the protocol.",
+    check: "Before you withdraw, open Bittensor's own page and check the fees your dTAO pool earned.",
+  },
+  'clearstar': {
+    action: "Deposit {CAPITAL} of USDC into a Clearstar-curated vault on {CHAIN} and keep the vault shares in the same wallet.",
+    weekly: "Check the Clearstar vault's strategy once a week and add a small top-up when the curator opens a new market.",
+    hold: "Hold the Clearstar vault shares for at least {HOLD} days so the position is counted in more than one snapshot of the protocol.",
+    check: "Before you withdraw, open Clearstar's own page and check what your vault shares earned.",
+  },
+  'curvance': {
+    action: "Supply {CAPITAL} of USDC to Curvance on {CHAIN} as a lender, then use its one-click leverage once so the position counts as active.",
+    weekly: "Adjust the leverage once a week if the borrow rate moved, and keep the health factor above the level Curvance shows as safe.",
+    hold: "Hold the Curvance supply position for at least {HOLD} days so the activity is counted in more than one snapshot of the protocol.",
+    check: "Before you withdraw, open Curvance's own page and check the interest your supply earned.",
+  },
+  'doppler-finance': {
+    action: "Deposit {CAPITAL} of XRP into Doppler Finance on {CHAIN}, the first XRPfi protocol on XRPL, and keep the position in the same wallet.",
+    weekly: "Use the Doppler position once a week in one of its markets so the wallet shows repeat activity, not a single deposit.",
+    hold: "Hold the Doppler position for at least {HOLD} days so the activity is counted in more than one snapshot of the protocol.",
+    check: "Before you withdraw, open Doppler's own page and check what your XRP position earned.",
+  },
+  'ember': {
+    action: "Buy {CAPITAL} of an Ember tokenized fund product on {CHAIN} and hold the fund tokens in the same wallet.",
+    weekly: "Check the Ember fund's value once a week and add a small top-up when Ember lists a new tokenized product.",
+    hold: "Hold the Ember fund tokens for at least {HOLD} days so the activity is counted in more than one snapshot of the protocol.",
+    check: "Before you sell, open Ember's own page and check what your fund tokens earned.",
+  },
+  'firelight': {
+    action: "Stake {CAPITAL} of FXRP through Firelight on {CHAIN} to back coverage against protocol failures, and keep the stake in the same wallet.",
+    weekly: "Check once a week whether the Risk Consortium validated any incident, and confirm your staked FXRP is still backing cover.",
+    hold: "Hold the Firelight stake for at least {HOLD} days so it is counted in more than one snapshot of the protocol.",
+    check: "Before you withdraw, open Firelight's own page and check the cover rewards your staked FXRP earned.",
+  },
+  'galaxy-curation': {
+    action: "Deposit {CAPITAL} of USDC into a Galaxy-curated vault on {CHAIN} and keep the vault shares in the same wallet.",
+    weekly: "Check the Galaxy vault's allocation once a week and add a small top-up when Galaxy rebalances into a new market.",
+    hold: "Hold the Galaxy vault shares for at least {HOLD} days so the position is counted in more than one snapshot of the protocol.",
+    check: "Before you withdraw, open the Galaxy vault page and check what your shares earned.",
+  },
+  'gami-labs': {
+    action: "Deposit {CAPITAL} of USDC into a Gami-curated vault on {CHAIN} and keep the vault shares in the same wallet.",
+    weekly: "Check the Gami vault's allocation once a week and add a small top-up when its active curation moves into a new market.",
+    hold: "Hold the Gami vault shares for at least {HOLD} days so the position is counted in more than one snapshot of the protocol.",
+    check: "Before you withdraw, open Gami's own page and check what your vault shares earned.",
+  },
+  'gauntlet': {
+    action: "Deposit {CAPITAL} of USDC into a Gauntlet vault on {CHAIN} and keep the vault shares in the same wallet.",
+    weekly: "Check the Gauntlet vault's risk-adjusted yield once a week and move a small part to the Gauntlet vault with the best risk-adjusted return if yours lags.",
+    hold: "Hold the Gauntlet vault shares for at least {HOLD} days so the position is counted in more than one snapshot of the protocol.",
+    check: "Before you withdraw, open Gauntlet's own page and check what your vault shares earned.",
+  },
+  'hive-protocol': {
+    action: "Stake {CAPITAL} of BTC through Hive Protocol on {CHAIN} to safeguard the network and receive $B2 tokens in the same wallet.",
+    weekly: "Claim the $B2 rewards once a week and restake them so the position compounds.",
+    hold: "Hold the Hive stake for at least {HOLD} days so the activity is counted in more than one snapshot of the protocol.",
+    check: "Before you withdraw, open Hive's own page and check the $B2 your stake earned.",
+  },
+  'hyperithm': {
+    action: "Deposit {CAPITAL} of USDC into a Hyperithm-managed vault on {CHAIN} and keep the vault shares in the same wallet.",
+    weekly: "Check the Hyperithm vault's performance once a week and add a small top-up when Hyperithm opens a new quant strategy.",
+    hold: "Hold the Hyperithm vault shares for at least {HOLD} days so the position is counted in more than one snapshot of the protocol.",
+    check: "Before you withdraw, open Hyperithm's own page and check what your vault shares earned.",
+  },
+  'infinifi': {
+    action: "Deposit {CAPITAL} of USDC into infiniFi on {CHAIN} so it earns the yield from its liquid and illiquid asset mix, and keep the deposit in the same wallet.",
+    weekly: "Check the infiniFi deposit yield once a week and add a small top-up when infiniFi opens a new reserve product.",
+    hold: "Hold the infiniFi deposit for at least {HOLD} days so the activity is counted in more than one snapshot of the protocol.",
+    check: "Before you withdraw, open infiniFi's own page and check what your deposit earned.",
+  },
+  'k3-capital': {
+    action: "Deposit {CAPITAL} of USDC into a K3 Capital-curated vault on {CHAIN} and keep the vault shares in the same wallet.",
+    weekly: "Check the K3 vault's allocation once a week and add a small top-up when K3 opens a new market.",
+    hold: "Hold the K3 vault shares for at least {HOLD} days so the position is counted in more than one snapshot of the protocol.",
+    check: "Before you withdraw, open K3's own page and check what your vault shares earned.",
+  },
+  'keyrock': {
+    action: "Deposit {CAPITAL} of USDC into a Keyrock-curated Morpho vault on {CHAIN} and keep the vault shares in the same wallet.",
+    weekly: "Check the Morpho vault's yield once a week and move a small part to the Keyrock vault with the best return if yours lags.",
+    hold: "Hold the Keyrock Morpho vault shares for at least {HOLD} days so the position is counted in more than one snapshot of the protocol.",
+    check: "Before you withdraw, open Keyrock's own page and check what your Morpho vault shares earned.",
+  },
+  'lagoon': {
+    action: "Deposit {CAPITAL} of USDC into a public Lagoon vault on {CHAIN} — its ERC-7540 vaults settle deposits and withdrawals asynchronously — and keep the vault shares in the same wallet.",
+    weekly: "Check the Lagoon vault's yield once a week and move a small part to another public Lagoon vault if a curator with a better record lists one.",
+    hold: "Hold the Lagoon vault shares for at least {HOLD} days so the position is counted in more than one snapshot of the protocol.",
+    check: "Before you withdraw, open Lagoon's own page and check what your vault shares earned.",
+  },
+  'lightning-network': {
+    action: "Open a Lightning channel with {CAPITAL} of BTC capacity on {CHAIN} and keep the node online so it can route payments.",
+    weekly: "Check the channel's routing fees once a week and rebalance it when one side runs dry.",
+    hold: "Keep the Lightning channel open for at least {HOLD} days so the activity is counted in more than one snapshot of the network.",
+    check: "Before you close the channel, open Lightning's own page and check the fees your channel routed.",
+  },
+  'lofty': {
+    action: "Buy {CAPITAL} of a fractional Lofty property token on {CHAIN} and hold it in the same wallet.",
+    weekly: "Check the property's rental payout once a week and add a small top-up when Lofty lists a new property.",
+    hold: "Hold the Lofty property tokens for at least {HOLD} days so the activity is counted in more than one snapshot of the protocol.",
+    check: "Before you sell, open Lofty's own page and check the rent your property tokens earned.",
+  },
+  'mezo-earn': {
+    action: "Deposit {CAPITAL} of BTC into Mezo Earn on {CHAIN} to earn yield and take part in the governance that allocates the network's rewards.",
+    weekly: "Vote once a week on a Mezo governance proposal so the wallet shows repeat activity, not a single deposit.",
+    hold: "Hold the Mezo Earn deposit for at least {HOLD} days so the activity is counted in more than one snapshot of the protocol.",
+    check: "Before you withdraw, open Mezo Earn's own page and check the yield and the governance rewards your BTC earned.",
+  },
+  'noble': {
+    action: "Hold {CAPITAL} of a Noble-issued stablecoin on {CHAIN} and use it once in a Cosmos app so the wallet shows real activity.",
+    weekly: "Move a small part of the stablecoins into a new Cosmos app on Noble once a week so the activity repeats.",
+    hold: "Hold the Noble stablecoins for at least {HOLD} days so the activity is counted in more than one snapshot of the protocol.",
+    check: "Before you move the funds back, open Noble's own page and check what your stablecoins earned.",
+  },
+  'nonce-capital': {
+    action: "Deposit {CAPITAL} of ETH into a Nonce-managed ether.fi Liquid vault on {CHAIN} and keep the vault shares in the same wallet.",
+    weekly: "Check the ether.fi Liquid vault's yield once a week and add a small top-up when Nonce opens a new vault, such as a Midas tokenized fund.",
+    hold: "Hold the Nonce vault shares for at least {HOLD} days so the position is counted in more than one snapshot of the protocol.",
+    check: "Before you withdraw, open Nonce's own page and check what your ether.fi Liquid vault shares earned.",
+  },
+  'onre': {
+    action: "Deposit {CAPITAL} of USDC into OnRe on {CHAIN} to back real-world reinsurance risk, and keep the position in the same wallet.",
+    weekly: "Check the OnRe reinsurance yield once a week and add a small top-up when OnRe opens a new risk pool.",
+    hold: "Hold the OnRe position for at least {HOLD} days so the activity is counted in more than one snapshot of the protocol.",
+    check: "Before you withdraw, open OnRe's own page and check what your reinsurance position earned.",
+  },
+  'opentrade': {
+    action: "Deposit {CAPITAL} of USDC into an OpenTrade yield product on {CHAIN} and hold the position in the same wallet.",
+    weekly: "Check the OpenTrade yield once a week and move a small part to the OpenTrade product with the best return if yours lags.",
+    hold: "Hold the OpenTrade position for at least {HOLD} days so the activity is counted in more than one snapshot of the protocol.",
+    check: "Before you withdraw, open OpenTrade's own page and check what your yield product earned.",
+  },
+  'plume-vaults': {
+    action: "Deposit {CAPITAL} of USDC into a Plume Vault on {CHAIN} for onchain access to real-world yield, and keep the vault shares in the same wallet.",
+    weekly: "Check the Plume Vault's yield once a week and move a small part to another Plume Vault when a new structured product lists.",
+    hold: "Hold the Plume Vault shares for at least {HOLD} days so the position is counted in more than one snapshot of the protocol.",
+    check: "Before you withdraw, open Plume's own page and check what your vault shares earned.",
+  },
+  'r25': {
+    action: "Deposit {CAPITAL} of USDC into an R25 vault on {CHAIN} and keep the vault shares in the same wallet.",
+    weekly: "Check the R25 vault's yield once a week and add a small top-up when its automated strategies open a new market.",
+    hold: "Hold the R25 vault shares for at least {HOLD} days so the position is counted in more than one snapshot of the protocol.",
+    check: "Before you withdraw, open R25's own page and check what your vault shares earned.",
+  },
+  'reti-pooling': {
+    action: "Pool {CAPITAL} of ALGO through Réti Pooling on {CHAIN} so it stakes with validators, and keep the rewards in the same wallet.",
+    weekly: "Claim the ALGO staking rewards once a week and restake them so the position compounds.",
+    hold: "Hold the Réti stake for at least {HOLD} days so the activity is counted in more than one snapshot of the protocol.",
+    check: "Before you withdraw, open Réti Pooling's own page and check the ALGO rewards your pooled stake earned.",
+  },
+  'rockawayx': {
+    action: "Deposit {CAPITAL} of USDC into a RockawayX-curated Morpho vault on {CHAIN} and keep the vault shares in the same wallet.",
+    weekly: "Check the Morpho vault's market-neutral yield once a week and move a small part to the RockawayX vault with the best return if yours lags.",
+    hold: "Hold the RockawayX Morpho vault shares for at least {HOLD} days so the position is counted in more than one snapshot of the protocol.",
+    check: "Before you withdraw, open RockawayX's own page and check what your Morpho vault shares earned.",
+  },
+  'saturn': {
+    action: "Mint {CAPITAL} of USDat through Saturn on {CHAIN}, then hold the yield-bearing sUSDat version so the position earns the digital credit yield.",
+    weekly: "Claim or restake the sUSDat yield once a week so the position compounds instead of sitting idle.",
+    hold: "Hold the sUSDat position for at least {HOLD} days so the activity is counted in more than one snapshot of the protocol.",
+    check: "Before you withdraw, open Saturn's own page and check the yield your sUSDat earned and that USDat is still backed by the treasuries Saturn names.",
+  },
+  'steakhouse-financial': {
+    action: "Deposit {CAPITAL} of USDC into a Steakhouse-curated vault on {CHAIN} and keep the vault shares in the same wallet.",
+    weekly: "Check the Steakhouse vault's yield once a week and move a small part to the Steakhouse vault with the best return if yours lags.",
+    hold: "Hold the Steakhouse vault shares for at least {HOLD} days so the position is counted in more than one snapshot of the protocol.",
+    check: "Before you withdraw, open Steakhouse's own page and check what your vault shares earned.",
+  },
+  'symbiotic': {
+    action: "Commit {CAPITAL} of collateral into a Symbiotic vault on {CHAIN} so it backs credit, insurance or stablecoin products while staying productive, and keep the vault position in the same wallet.",
+    weekly: "Check which products your collateral backs once a week and move a small part to the Symbiotic vault with the best return if yours lags.",
+    hold: "Hold the Symbiotic vault position for at least {HOLD} days so the position is counted in more than one snapshot of the protocol.",
+    check: "Before you withdraw, open Symbiotic's own page and check what your committed collateral earned.",
+  },
+  'tori-finance': {
+    action: "Mint {CAPITAL} of trUSD through Tori Finance on {CHAIN}, then stake it into strUSD to earn the yield from its delta-neutral positions.",
+    weekly: "Claim or restake the strUSD yield once a week so the position compounds instead of sitting idle.",
+    hold: "Hold the strUSD position for at least {HOLD} days so the activity is counted in more than one snapshot of the protocol.",
+    check: "Before you withdraw, open Tori's own page and check the yield your strUSD earned and that trUSD is still backed by the delta-neutral positions Tori names.",
+  },
+  'tulipa-capital': {
+    action: "Deposit {CAPITAL} of USDC into a Tulipa-curated vault on {CHAIN} and keep the vault shares in the same wallet.",
+    weekly: "Check the Tulipa vault's yield once a week and add a small top-up when Tulipa opens a new market.",
+    hold: "Hold the Tulipa vault shares for at least {HOLD} days so the position is counted in more than one snapshot of the protocol.",
+    check: "Before you withdraw, open Tulipa's own page and check what your vault shares earned.",
+  },
+  'tydro': {
+    action: "Supply {CAPITAL} of USDC to Tydro on {CHAIN} as a lender — its markets are powered by Aave — and borrow $20 against it once so the position counts as active.",
+    weekly: "Adjust the borrow once a week if the rate moved, and keep the health factor above the level Tydro shows as safe.",
+    hold: "Hold the Tydro supply position for at least {HOLD} days so the activity is counted in more than one snapshot of the protocol.",
+    check: "Before you withdraw, open Tydro's own page and check the interest your supply earned.",
+  },
+  'upshift': {
+    action: "Deposit {CAPITAL} of USDC into an Upshift vault on {CHAIN} and keep the vault shares in the same wallet.",
+    weekly: "Check the Upshift vault's cross-chain yield once a week and add a small top-up when Upshift opens a new chain.",
+    hold: "Hold the Upshift vault shares for at least {HOLD} days so the position is counted in more than one snapshot of the protocol.",
+    check: "Before you withdraw, open Upshift's own page and check what your vault shares earned.",
+  },
+  'usdd': {
+    action: "Mint {CAPITAL} of USDD on {CHAIN} against crypto reserves and hold it in the same wallet, or buy USDD and supply it once in a Tron lending market.",
+    weekly: "Check the USDD peg once a week and use the USDD in one Tron app so the wallet shows repeat activity.",
+    hold: "Hold the USDD position for at least {HOLD} days so the activity is counted in more than one snapshot of the protocol.",
+    check: "Before you move the funds back, open USDD's own page and check the yield your USDD earned and the reserves backing it.",
+  },
+  'valos': {
+    action: "Deposit {CAPITAL} of USDC into a Valos yield product on {CHAIN} and keep the position in the same wallet.",
+    weekly: "Check the Valos yield once a week and move a small part to the Valos product with the best return if yours lags.",
+    hold: "Hold the Valos position for at least {HOLD} days so the activity is counted in more than one snapshot of the protocol.",
+    check: "Before you withdraw, open Valos's own page and check what your yield product earned.",
+  },
+  'veda': {
+    action: "Deposit {CAPITAL} of ETH into a Veda-powered vault on {CHAIN}, such as ether.fi Liquid, and keep the vault shares in the same wallet.",
+    weekly: "Check the Veda vault's yield once a week and move a small part to another Veda-powered vault, such as Lombard's, if yours lags.",
+    hold: "Hold the Veda vault shares for at least {HOLD} days so the position is counted in more than one snapshot of the protocol.",
+    check: "Before you withdraw, open Veda's own page and check what your vault shares earned.",
+  },
+  'yuzu-money': {
+    action: "Mint {CAPITAL} of yzUSD through Yuzu Money on {CHAIN}, then stake it into syzUSD to earn the yield from its curated strategies.",
+    weekly: "Claim or restake the syzUSD yield once a week so the position compounds instead of sitting idle.",
+    hold: "Hold the syzUSD position for at least {HOLD} days so the activity is counted in more than one snapshot of the protocol.",
+    check: "Before you withdraw, open Yuzu's own page and check the yield your syzUSD earned and the strategies backing yzUSD.",
+  },
+};
+
 /** The category's one action, in the words a farmer can follow. */
 function actionFor(p: SnapshotProtocol, capital: number, chain: string): string {
   const c = (p.category ?? '').toLowerCase();
@@ -438,14 +727,34 @@ function actionFor(p: SnapshotProtocol, capital: number, chain: string): string 
 /**
  * A protocol's farm plan: six steps, each an action with a cost and a time. The plan is
  * derived from the protocol's own record (category, chains, TVL, age), never from a
- * hand-written list of names.
+ * hand-written list of names — except the watchlist, whose 40 slugs each carry their
+ * own plan in WATCHLIST_PLANS, written from the protocol's public record. Steps 1
+ * and 6 are the same for every protocol: a fresh wallet and a farm log are the same
+ * action everywhere, and dressing them up per protocol would be padding.
  */
 export function farmSteps(p: SnapshotProtocol, age: number | null): FarmStep[] {
   const chain = chainOf(p);
   const capital = capitalFor(p);
   const hold = holdDaysFor(age);
-  const action = actionFor(p, capital, chain);
+  const plan = WATCHLIST_PLANS[p.slug];
+  const fill = (s: string): string =>
+    s.replaceAll('{CAPITAL}', `$${capital}`).replaceAll('{CHAIN}', chain).replaceAll('{HOLD}', String(hold));
+  const action = plan !== undefined ? fill(plan.action) : actionFor(p, capital, chain);
   const secondChain = p.chains.length > 1 ? p.chains[1]! : null;
+  const weekly =
+    plan !== undefined
+      ? fill(plan.weekly)
+      : secondChain === null
+        ? `Make one qualifying action each week, such as a deposit, a borrow, a swap or a vote on the protocol's app.`
+        : `Repeat the same position once on ${secondChain} so the activity shows on a second chain, not only on ${chain}.`;
+  const holdText =
+    plan !== undefined
+      ? fill(plan.hold)
+      : `Hold the position for at least ${hold} days so the activity is counted in more than one snapshot of the protocol.`;
+  const checkText =
+    plan !== undefined
+      ? fill(plan.check)
+      : `Before you withdraw, open the protocol's own points or rewards page from the link it publishes and check what you earned.`;
   return [
     {
       text: `Use a fresh wallet that holds only the funds you plan to farm, and keep its seed phrase offline on paper.`,
@@ -458,19 +767,17 @@ export function farmSteps(p: SnapshotProtocol, age: number | null): FarmStep[] {
       time: '15 minutes to set up',
     },
     {
-      text: secondChain === null
-        ? `Make one qualifying action each week, such as a deposit, a borrow, a swap or a vote on the protocol's app.`
-        : `Repeat the same position once on ${secondChain} so the activity shows on a second chain, not only on ${chain}.`,
-      cost: secondChain === null ? 'about $2 of gas a week' : `about $${capital >= 150 ? 8 : 4} of gas for the second position`,
-      time: secondChain === null ? '10 minutes a week' : '15 minutes',
+      text: weekly,
+      cost: plan !== undefined ? 'about $2 of gas a week' : secondChain === null ? 'about $2 of gas a week' : `about $${capital >= 150 ? 8 : 4} of gas for the second position`,
+      time: plan !== undefined ? '10 minutes a week' : secondChain === null ? '10 minutes a week' : '15 minutes',
     },
     {
-      text: `Hold the position for at least ${hold} days so the activity is counted in more than one snapshot of the protocol.`,
+      text: holdText,
       cost: `the $${capital} stays in the position`,
       time: `${hold} days`,
     },
     {
-      text: `Before you withdraw, open the protocol's own points or rewards page from the link it publishes and check what you earned.`,
+      text: checkText,
       cost: 'no fee to check, and never pay anyone to claim',
       time: '10 minutes',
     },
