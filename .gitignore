@@ -1,0 +1,6 @@
+out/
+out2/
+.DS_Store
+makefun-keypair.json
+*.keypair.json
+.env

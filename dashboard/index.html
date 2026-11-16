@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Token Radar — pre-token protocols ranked by implied value</title>
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<a class="skip" href="#board">Skip to the board</a>
+<div class="shell">
+  <aside class="sidebar" id="sidebar" aria-label="Sections">
+    <div class="brand"><span class="brand-dot" aria-hidden="true"></span><span class="brand-name">Token Radar</span><span class="brand-tag">radar-2</span></div>
+    <nav class="nav" aria-label="Dashboard">
+      <p class="nav-group">Overview</p>
+      <button class="nav-item is-active" data-nav="board" type="button">Board</button>
+      <button class="nav-item" data-nav="chart" type="button">Top 10 chart</button>
+      <button class="nav-item" data-nav="model" type="button">The model</button>
+      <p class="nav-group">Lists</p>
+      <button class="nav-item" data-nav="watchlist" type="button">Watchlist <span class="nav-count" id="nav-watchlist-count"></span></button>
+      <button class="nav-item" data-nav="early" type="button">Early finds</button>
+      <button class="nav-item" data-nav="live" type="button">Live tokens</button>
+      <button class="nav-item" data-nav="starred" type="button">Starred <span class="nav-count" id="nav-starred-count"></span></button>
+    </nav>
+    <div class="side-foot">
+      <p class="side-note">Sealed snapshot</p>
+      <p class="side-note" id="side-asof"></p>
+      <p class="side-note muted">No live feed. Every figure comes from the snapshot.</p>
+    </div>
+  </aside>
+  <div class="main">
+    <header class="topbar">
+      <button class="icon-btn" id="sidebar-toggle" type="button" aria-label="Toggle sidebar">☰</button>
+      <div class="top-title"><h1>Token launch radar</h1><p class="top-sub" id="top-sub"></p></div>
+      <div class="top-right">
+        <span class="snap-badge"><span class="snap-dot" aria-hidden="true"></span>Snapshot <span id="snap-date"></span></span>
+        <label class="search"><span class="sr-only">Search protocols</span><input id="search" type="search" placeholder="Search name or slug…" autocomplete="off"></label>
+      </div>
+    </header>
+    <main id="board" tabindex="-1" aria-busy="true"></main>
+  </div>
+</div>
+<div class="drawer-backdrop" id="drawer-backdrop" hidden></div>
+<aside class="drawer" id="drawer" aria-label="Protocol detail" hidden></aside>
+<div class="toast" id="toast" role="status" hidden></div>
+<script src="../data.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
